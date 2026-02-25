@@ -312,7 +312,6 @@ currentLUT = makeLUT(1,1,ZEROS[1][0]);
 // ============ AUDIO INPUT CODE ============
 async function listDevices(){
   var sel=document.getElementById('inputDevice');
-  try{ var tmp=await navigator.mediaDevices.getUserMedia({audio:true}); tmp.getTracks().forEach(function(t){t.stop();}); }catch(e){return;}
   var devices=await navigator.mediaDevices.enumerateDevices();
   sel.innerHTML='<option value="">Default</option>';
   devices.forEach(function(d){
@@ -574,6 +573,7 @@ document.getElementById('btnStart').onclick=async function(){
   if(!isRunning&&!isCalibrating){
     try{
       await startAudio();
+      listDevices();
       if(inputMode==='voice') await calibrate();
       else{ document.getElementById('btnStart').textContent='Stop'; document.getElementById('btnStart').classList.add('active'); }
       isRunning=true;
