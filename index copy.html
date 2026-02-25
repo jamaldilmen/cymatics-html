@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Echtzeit 3D Punktnetz (Three.js)</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #1a1a1a; }
+        canvas { display: block; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+<script>
+    // 1. Grundeinrichtung: Szene, Kamera, Renderer
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(2, 2, 2);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Maussteuerung aktivieren
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+    // 2. Punktnetz (Point Cloud) erstellen
+    const gridSize = 60; // 60x60 = 3600 Punkte (für Three.js ein Klacks)
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(gridSize * gridSize * 3);
+    const colors = new Float32Array(gridSize * gridSize * 3);
+
+    // Hilfsfunktion für Farben (Viridis-ähnlich)
+    const color = new THREE.Color();
+
+    let index = 0;
+    for (let i = 0; i < gridSize; i++) {
+        for (let j = 0; j < gridSize; j++) {
+            // X und Y von -0.5 bis 0.5 zentrieren
+            const x = (j / (gridSize - 1)) - 0.5;
+            const y = (i / (gridSize - 1)) - 0.5;
+            const z = 0; // Wird in der Animation berechnet
+
+            positions[index * 3] = x;
+            positions[index * 3 + 1] = y;
+            positions[index * 3 + 2] = z;
+
+            index++;
+        }
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    // Material für die Punkte (Größe und Färbung)
+    const material = new THREE.PointsMaterial({
+        size: 0.02,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.8
+    });
+
+    const particles = new THREE.Points(geometry, material);
+    scene.add(particles);
+
+    // 3. Animations-Schleife (läuft mit bis zu 60 FPS)
+    const clock = new THREE.Clock();
+
+    function animate() {
+        requestAnimationFrame(animate);
+
+        const time = clock.getElapsedTime();
+        const positions = geometry.attributes.position.array;
+        const colors = geometry.attributes.color.array;
+
+        // Gehe durch jeden Punkt und update den Z-Wert basierend auf Zeit
+        for (let i = 0; i < positions.length; i += 3) {
+            const x = positions[i];
+            const y = positions[i + 1];
+            
+            // Die mathematische Funktion, jetzt abhängig von der Zeit ('time')
+            // x und y sind hier skaliert, damit die Welle gut aussieht
+            const z = 0.5 * Math.sin(10 * x + time) * Math.sin(10 * y + time);
+            
+            positions[i + 2] = z; // Z-Wert updaten
+
+            // Farbe basierend auf der Höhe (Z-Wert) anpassen
+            color.setHSL((z + 0.5) * 0.4 + 0.3, 1.0, 0.5);
+            colors[i] = color.r;
+            colors[i + 1] = color.g;
+            colors[i + 2] = color.b;
+        }
+
+        // WICHTIG: Three.js sagen, dass sich die Daten geändert haben!
+        geometry.attributes.position.needsUpdate = true;
+        geometry.attributes.color.needsUpdate = true;
+
+        controls.update();
+        renderer.render(scene, camera);
+    }
+
+    // Fenstergröße anpassen, falls skaliert wird
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Start!
+    animate();
+</script>
+
+</body>
+</html>

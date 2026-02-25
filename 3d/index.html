@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Chladni 3D Proof</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #0a0a0f; color: #fff; font-family: monospace; }
+        #ui { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; pointer-events: auto; z-index: 100;}
+        button { background: #333; color: white; border: 1px solid #555; padding: 5px 10px; cursor: pointer; margin-right: 5px; }
+        button:hover { background: #555; }
+        input[type=range] { width: 100%; margin-top: 10px; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+<div id="ui">
+    <h3>Chladni 2.5D Physik</h3>
+    <div>Klicke und ziehe die Maus, um in 3D zu rotieren!</div>
+    <br>
+    <button onclick="setMode(0, 1)">Kreis (0,1)</button>
+    <button onclick="setMode(3, 1)">Stern (3,1)</button>
+    <button onclick="setMode(4, 2)">Komplex (4,2)</button>
+    <br><br>
+    <label>Audio Amplitude (Simuliert den Bass-Kick)</label>
+    <input type="range" id="ampSlider" min="0" max="1" step="0.01" value="0.5">
+</div>
+
+<script>
+    // --- 1. SETUP THREE.JS ---
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    // Wir starten fast Top-Down, leicht angewinkelt
+    camera.position.set(0, -6, 4);
+    
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+    // --- 2. CHLADNI MATHEMATIK (1:1 aus deiner App) ---
+    const zeros = [
+        [2.4048, 5.5201, 8.6537, 11.7915],
+        [3.8317, 7.0156, 10.1735, 13.3237],
+        [5.1356, 8.4172, 11.6198, 14.7960],
+        [6.3802, 9.7610, 13.0152, 16.2235],
+        [7.5883, 11.0647, 14.3725, 17.6160]
+    ];
+
+    let currentM = 3;
+    let currentN = 1;
+    let currentK = zeros[currentM][currentN - 1];
+
+    window.setMode = function(m, n) {
+        currentM = m; currentN = n;
+        currentK = zeros[m][n - 1];
+    }
+
+    function besselJ(n, x) {
+        if (Math.abs(x) < 1e-10) return n === 0 ? 1 : 0;
+        let s = 0;
+        let hx = x / 2.0;
+        for (let k = 0; k < 20; k++) {
+            let sign = (k % 2 === 0) ? 1.0 : -1.0;
+            let num = Math.pow(hx, 2 * k + n);
+            let den = 1.0;
+            for (let i = 1; i <= Math.max(1, k); i++) den *= i;
+            for (let i = 1; i <= Math.max(1, k + n); i++) den *= i;
+            s += sign * num / den;
+            if (Math.abs(num / den) < 1e-15) break;
+        }
+        return s;
+    }
+
+    // Die "Höhe" der Chladni Platte
+    function waveHeight(m, k, r, th) {
+        if (r > 1.0) return 0;
+        let j = besselJ(m, k * r);
+        let a = m === 0 ? 1.0 : Math.cos(m * th);
+        return j * a;
+    }
+
+    // Das Potential (Partikel wollen dahin, wo das Potential 0 ist)
+    function potential(m, k, r, th) {
+        let h = waveHeight(m, k, r, th);
+        return h * h;
+    }
+
+    // --- 3. PARTIKEL SYSTEM ---
+    const NUM_PARTICLES = 15000;
+    const particles = [];
+    
+    // Three.js BufferGeometry für schnelles Rendern
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(NUM_PARTICLES * 3);
+    const colors = new Float32Array(NUM_PARTICLES * 3);
+
+    for (let i = 0; i < NUM_PARTICLES; i++) {
+        let angle = Math.random() * Math.PI * 2;
+        let r = Math.sqrt(Math.random()) * 0.95;
+        particles.push({
+            x: r * Math.cos(angle),
+            y: r * Math.sin(angle),
+            vx: 0, vy: 0
+        });
+
+        // Farbe vergeben (Orange / Blau wie in deiner App)
+        let isOrange = Math.random() > 0.5;
+        colors[i * 3] = isOrange ? 0.91 : 0.29;     // R
+        colors[i * 3 + 1] = isOrange ? 0.53 : 0.62; // G
+        colors[i * 3 + 2] = isOrange ? 0.23 : 0.84; // B
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    // ShaderMaterial für schöne leuchtende Punkte
+    const material = new THREE.PointsMaterial({
+        size: 0.04,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.8,
+        blending: THREE.AdditiveBlending
+    });
+
+    const pointCloud = new THREE.Points(geometry, material);
+    scene.add(pointCloud);
+
+    // --- 4. RENDER & PHYSIK LOOP ---
+    const PLATE_RADIUS = 3.0;
+    let time = 0;
+
+    function animate() {
+        requestAnimationFrame(animate);
+        time += 0.05;
+
+        const ampSlider = document.getElementById('ampSlider');
+        const amplitude = parseFloat(ampSlider.value);
+        
+        const eps = 0.01;
+        const forceScale = 0.015;
+        const friction = 0.92;
+
+        for (let i = 0; i < NUM_PARTICLES; i++) {
+            let p = particles[i];
+            let r = Math.sqrt(p.x * p.x + p.y * p.y);
+            let h = 0;
+
+            if (r < 0.98) {
+                // Numerischer Gradient zur Nodal-Line
+                let pXp = potential(currentM, currentK, Math.sqrt((p.x+eps)**2 + p.y**2), Math.atan2(p.y, p.x+eps));
+                let pXm = potential(currentM, currentK, Math.sqrt((p.x-eps)**2 + p.y**2), Math.atan2(p.y, p.x-eps));
+                let pYp = potential(currentM, currentK, Math.sqrt(p.x**2 + (p.y+eps)**2), Math.atan2(p.y+eps, p.x));
+                let pYm = potential(currentM, currentK, Math.sqrt(p.x**2 + (p.y-eps)**2), Math.atan2(p.y-eps, p.x));
+
+                let gx = (pXp - pXm) / (2 * eps);
+                let gy = (pYp - pYm) / (2 * eps);
+
+                p.vx -= gx * forceScale;
+                p.vy -= gy * forceScale;
+                
+                // Ein bisschen Noise, damit es nicht einfriert
+                p.vx += (Math.random() - 0.5) * 0.001;
+                p.vy += (Math.random() - 0.5) * 0.001;
+            }
+
+            p.vx *= friction;
+            p.vy *= friction;
+            p.x += p.vx;
+            p.y += p.vy;
+
+            // Rand-Behandlung (kein Wobbeln!)
+            r = Math.sqrt(p.x * p.x + p.y * p.y);
+            if (r > 0.98) {
+                p.x = (p.x / r) * 0.98;
+                p.y = (p.y / r) * 0.98;
+                p.vx *= 0.5;
+                p.vy *= 0.5;
+            }
+
+            // --- DAS IST DEIN 3D EFFEKT ---
+            let th = Math.atan2(p.y, p.x);
+            h = waveHeight(currentM, currentK, r, th);
+            // Je höher die Amplitude, desto extremer der Bounce der Wellen-Bäuche
+            let zDisplacement = h * Math.sin(time * 10) * amplitude;
+
+            // Schreibe Position in 3D Array
+            let idx = i * 3;
+            positions[idx] = p.x * PLATE_RADIUS;
+            positions[idx + 1] = p.y * PLATE_RADIUS;
+            // Zuweisung der Z-Achse (In ThreeJS ist Y oben, also nutzen wir Z für die Tiefe)
+            positions[idx + 2] = zDisplacement * PLATE_RADIUS;
+        }
+
+        geometry.attributes.position.needsUpdate = true;
+        controls.update();
+        renderer.render(scene, camera);
+    }
+
+    animate();
+
+    window.addEventListener('resize', onWindowResize, false);
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+</script>
+</body>
+</html>
